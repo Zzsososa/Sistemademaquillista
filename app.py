@@ -2,11 +2,12 @@ import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 import datetime
+import matplotlib.pyplot as plt
 from database import (init_db, create_connection, add_client, get_all_clients, get_client_by_id, update_client, delete_client, search_clients,
                    check_client_exists, add_service, get_all_services, get_service_by_id, update_service, delete_service, search_services,
                    add_appointment, get_all_appointments, update_appointment, delete_appointment, 
                    get_appointments_by_date, get_appointment_by_id, get_appointments_by_client, get_pending_appointments_with_clients,
-                   mark_appointment_as_completed, save_invoice)
+                   mark_appointment_as_completed, save_invoice, get_client_statistics)
 
 # Initialize the database
 init_db()
@@ -79,7 +80,7 @@ with st.sidebar:
         st.markdown("<h3 class='subheader'>Gestión de Clientes</h3>", unsafe_allow_html=True)
         
         # Create tabs for different client operations
-        client_tab = st.radio("Seleccione una opción:", ["Registrar Cliente", "Buscar y Editar Clientes"])
+        client_tab = st.radio("Seleccione una opción:", ["Registrar Cliente", "Buscar y Editar Clientes", "Estadísticas de Clientes"])
         
         if client_tab == "Registrar Cliente":
             st.markdown("<h4>Registrar Nuevo Cliente</h4>", unsafe_allow_html=True)
@@ -178,6 +179,41 @@ with st.sidebar:
                                     st.markdown("<div class='error-message'>Error al eliminar el cliente. Intente nuevamente.</div>", unsafe_allow_html=True)
             else:
                 st.info("No se encontraron clientes.")
+                
+        elif client_tab == "Estadísticas de Clientes":
+            st.markdown("<h4>Estadísticas de Clientes</h4>", unsafe_allow_html=True)
+            
+            # Obtener estadísticas de clientes
+            stats = get_client_statistics()
+            
+            # Mostrar estadísticas en tarjetas
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Total de Clientes", stats["total_clients"])
+                st.metric("Clientes Nuevos (30 días)", stats["new_clients_last_30_days"])
+            with col2:
+                st.metric("Clientes con Citas", stats["clients_with_appointments"])
+                st.metric("Clientes sin Citas", stats["clients_without_appointments"])
+            
+            # Mostrar gráfico de distribución
+            st.markdown("<h5>Distribución de Clientes</h5>", unsafe_allow_html=True)
+            
+            if stats["total_clients"] > 0:
+                # Crear datos para el gráfico circular
+                labels = ['Con Citas', 'Sin Citas']
+                sizes = [stats["clients_with_appointments"], stats["clients_without_appointments"]]
+                
+                # Mostrar gráfico circular
+                fig, ax = plt.subplots()
+                ax.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90)
+                ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle
+                st.pyplot(fig)
+                
+                # Añadir algunas recomendaciones basadas en los datos
+                if stats["clients_without_appointments"] > stats["clients_with_appointments"]:
+                    st.info(f"Hay {stats['clients_without_appointments']} clientes que nunca han agendado una cita. Considere realizar una campaña de marketing para estos clientes.")
+            else:
+                st.info("No hay suficientes datos para mostrar estadísticas.")
     
     elif section == "Servicios":
         st.markdown("<h3 class='subheader'>Gestión de Servicios</h3>", unsafe_allow_html=True)

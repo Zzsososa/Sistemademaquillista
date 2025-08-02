@@ -198,18 +198,26 @@ def delete_client(client_id):
         return 0
 
 def check_client_exists(first_name, last_name, phone_number):
-    """Check if a client with the same name and last name already exists"""
+    """Check if a client with the same name and last name or phone number already exists"""
     conn = create_connection()
     if conn is not None:
         try:
             cursor = conn.cursor()
-            # Buscar solo por nombre completo (caso exacto)
+            # Buscar por nombre completo o número de teléfono
             cursor.execute("""
                 SELECT * FROM clients 
-                WHERE first_name = ? AND last_name = ?
-            """, (first_name, last_name))
+                WHERE (first_name = ? AND last_name = ?) OR phone_number = ?
+            """, (first_name, last_name, phone_number))
             result = cursor.fetchone()
-            return result is not None
+            
+            if result is not None:
+                # Determinar si coincide por nombre o por teléfono
+                if result[1] == first_name and result[2] == last_name:
+                    print(f"Cliente con nombre {first_name} {last_name} ya existe.")
+                if result[3] == phone_number:
+                    print(f"Cliente con teléfono {phone_number} ya existe.")
+                return True
+            return False
         except sqlite3.Error as e:
             print(f"Database error: {e}")
             return False
@@ -229,7 +237,7 @@ def search_clients(search_term):
             sql = '''
                 SELECT * FROM clients 
                 WHERE first_name LIKE ? OR last_name LIKE ? OR phone_number LIKE ?
-                ORDER BY last_name, first_name
+                ORDER BY first_name, last_name
             '''
             cursor.execute(sql, (search_pattern, search_pattern, search_pattern))
             rows = cursor.fetchall()
@@ -242,6 +250,50 @@ def search_clients(search_term):
     else:
         print("Error: Cannot create database connection.")
         return []
+
+def get_client_statistics():
+    """Get statistics about clients in the database"""
+    conn = create_connection()
+    stats = {
+        "total_clients": 0,
+        "new_clients_last_30_days": 0,
+        "clients_with_appointments": 0,
+        "clients_without_appointments": 0
+    }
+    
+    if conn is not None:
+        try:
+            cursor = conn.cursor()
+            
+            # Total number of clients
+            cursor.execute("SELECT COUNT(*) FROM clients")
+            stats["total_clients"] = cursor.fetchone()[0]
+            
+            # New clients in the last 30 days
+            cursor.execute("""
+                SELECT COUNT(*) FROM clients 
+                WHERE created_at >= datetime('now', '-30 days')
+            """)
+            stats["new_clients_last_30_days"] = cursor.fetchone()[0]
+            
+            # Clients with appointments
+            cursor.execute("""
+                SELECT COUNT(DISTINCT client_id) FROM appointments
+            """)
+            stats["clients_with_appointments"] = cursor.fetchone()[0]
+            
+            # Clients without appointments
+            stats["clients_without_appointments"] = stats["total_clients"] - stats["clients_with_appointments"]
+            
+            return stats
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            return stats
+        finally:
+            conn.close()
+    else:
+        print("Error: Cannot create database connection.")
+        return stats
 
 # Service CRUD operations
 def add_service(name, price, duration_minutes, description=""):
