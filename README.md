@@ -51,9 +51,16 @@ streamlit run app.py
 - Editar información de clientes existentes
 - Eliminar clientes del sistema
 
+### Gestión de Citas
+- Programación de citas con selección de cliente y servicio
+- Calendario visual para ver disponibilidad
+- Notificaciones de próximas citas
+- Historial de citas por cliente
+- Estadísticas de citas con gráficos y métricas
+- Sistema de recordatorios automáticos
+- Detección de conflictos de horarios
+
 ## Próximas Funcionalidades
 
-- Gestión de citas y calendario
-- Registro de servicios y precios
 - Seguimiento de pagos e ingresos
 - Estadísticas y reportes del negocio
