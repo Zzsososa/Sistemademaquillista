@@ -699,25 +699,21 @@ def get_appointments_by_client(client_id):
             return []
         finally:
             conn.close()
-    else:
-        print("Error: Cannot create database connection.")
-        return []
-
-# Initialize database and tables
 def get_pending_appointments_with_clients():
-    """Get all scheduled appointments with client information"""
+    """Get all pending appointments with client information"""
     conn = create_connection()
     if conn is not None:
         try:
             cursor = conn.cursor()
-            cursor.execute("""
-                SELECT a.id, c.id, c.first_name, c.last_name, s.id, s.name, s.price, a.appointment_date, a.deposit_amount, a.notes, a.status 
+            sql = '''
+                SELECT a.id, c.first_name, c.last_name, s.name, a.appointment_date, a.deposit_amount, a.notes, a.status
                 FROM appointments a
                 JOIN clients c ON a.client_id = c.id
                 JOIN services s ON a.service_id = s.id
                 WHERE a.status = 'scheduled'
-                ORDER BY a.appointment_date ASC
-            """)
+                ORDER BY a.appointment_date
+            '''
+            cursor.execute(sql)
             rows = cursor.fetchall()
             return rows
         except sqlite3.Error as e:
@@ -728,6 +724,96 @@ def get_pending_appointments_with_clients():
     else:
         print("Error: Cannot create database connection.")
         return []
+
+def get_appointment_statistics():
+    """Get statistics about appointments"""
+    conn = create_connection()
+    if conn is not None:
+        try:
+            cursor = conn.cursor()
+            stats = {}
+            
+            # Total number of appointments
+            cursor.execute("SELECT COUNT(*) FROM appointments")
+            stats['total_appointments'] = cursor.fetchone()[0]
+            
+            # Appointments by status
+            cursor.execute("""
+                SELECT status, COUNT(*) as count 
+                FROM appointments 
+                GROUP BY status 
+                ORDER BY count DESC
+            """)
+            stats['appointments_by_status'] = cursor.fetchall()
+            
+            # Appointments in the last 30 days
+            cursor.execute("""
+                SELECT COUNT(*) FROM appointments 
+                WHERE date(appointment_date) >= date('now', '-30 days')
+            """)
+            stats['appointments_last_30_days'] = cursor.fetchone()[0]
+            
+            # Appointments in the next 7 days
+            cursor.execute("""
+                SELECT COUNT(*) FROM appointments 
+                WHERE date(appointment_date) BETWEEN date('now') AND date('now', '+7 days')
+                AND status = 'scheduled'
+            """)
+            stats['upcoming_appointments_7_days'] = cursor.fetchone()[0]
+            
+            # Most popular service (by number of appointments)
+            cursor.execute("""
+                SELECT s.name, COUNT(*) as count 
+                FROM appointments a
+                JOIN services s ON a.service_id = s.id
+                GROUP BY a.service_id
+                ORDER BY count DESC
+                LIMIT 1
+            """)
+            most_popular = cursor.fetchone()
+            stats['most_popular_service'] = most_popular if most_popular else None
+            
+            # Most active client (by number of appointments)
+            cursor.execute("""
+                SELECT c.first_name || ' ' || c.last_name as client_name, COUNT(*) as count 
+                FROM appointments a
+                JOIN clients c ON a.client_id = c.id
+                GROUP BY a.client_id
+                ORDER BY count DESC
+                LIMIT 1
+            """)
+            most_active = cursor.fetchone()
+            stats['most_active_client'] = most_active if most_active else None
+            
+            # Total revenue (sum of deposit amounts)
+            cursor.execute("SELECT SUM(deposit_amount) FROM appointments")
+            stats['total_revenue'] = cursor.fetchone()[0] or 0
+            
+            # Average deposit amount
+            cursor.execute("SELECT AVG(deposit_amount) FROM appointments")
+            stats['avg_deposit'] = cursor.fetchone()[0] or 0
+            
+            # Appointments by day of week
+            cursor.execute("""
+                SELECT strftime('%w', appointment_date) as day_of_week, COUNT(*) as count
+                FROM appointments
+                GROUP BY day_of_week
+                ORDER BY day_of_week
+            """)
+            days_mapping = {"0": "Domingo", "1": "Lunes", "2": "Martes", "3": "Miércoles", 
+                          "4": "Jueves", "5": "Viernes", "6": "Sábado"}
+            appointments_by_day = cursor.fetchall()
+            stats['appointments_by_day'] = [(days_mapping[day], count) for day, count in appointments_by_day]
+            
+            return stats
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            return {}
+        finally:
+            conn.close()
+    else:
+        print("Error: Cannot create database connection.")
+        return {}
 
 def mark_appointment_as_completed(appointment_id):
     """Mark an appointment as completed"""
