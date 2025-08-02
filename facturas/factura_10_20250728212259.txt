@@ -1,0 +1,26 @@
+
+===============================
+      LUCERO GLAM STUDIO
+===============================
+Fecha: 28/07/2025 21:22
+No. Factura: 10
+
+Cliente: Lucero Mejia
+Servicio: Maquillaje Express
+Fecha Cita: 28/07/2025 09:00
+
+-------------------------------
+Precio Servicio:    $1200.00
+Apartado Pagado:    $200.00
+Monto Restante:     $1000.00
+Mora:               $0.00
+Descuento:          $0.00
+-------------------------------
+TOTAL A PAGAR:      $1000.00
+PAGADO CON:         $1000.00
+CAMBIO:             $0.00
+-------------------------------
+
+      ¡GRACIAS POR SU VISITA!
+      Tel: +1 849-532-0716
+===============================
