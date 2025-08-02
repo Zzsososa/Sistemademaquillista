@@ -50,6 +50,10 @@ streamlit run app.py
 - Buscar clientes por nombre o número de teléfono
 - Editar información de clientes existentes
 - Eliminar clientes del sistema
+- Visualizar estadísticas de clientes frecuentes
+- Exportar lista de clientes
+- Historial de citas por cliente
+- Sistema de categorización de clientes por frecuencia
 
 ## Próximas Funcionalidades
 
