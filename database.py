@@ -51,14 +51,15 @@ def create_tables():
                 )
             ''')
             
-            # Create services table (for future use)
+            # Create services table with category
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS services (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
                     description TEXT,
                     price REAL NOT NULL,
-                    duration_minutes INTEGER NOT NULL
+                    duration_minutes INTEGER NOT NULL,
+                    category TEXT DEFAULT 'General'
                 )
             ''')
             
@@ -244,27 +245,27 @@ def search_clients(search_term):
         return []
 
 # Service CRUD operations
-def add_service(name, price, duration_minutes, description=""):
+def add_service(name, price, duration_minutes, description="", category="General"):
     """Add a new service to the database"""
     conn = create_connection()
     if conn is not None:
         try:
             cursor = conn.cursor()
             sql = '''
-                INSERT INTO services (name, price, duration_minutes, description)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO services (name, description, price, duration_minutes, category)
+                VALUES (?, ?, ?, ?, ?)
             '''
-            cursor.execute(sql, (name, float(price), int(duration_minutes), description))
+            cursor.execute(sql, (name, description, price, duration_minutes, category))
             conn.commit()
             return cursor.lastrowid
         except sqlite3.Error as e:
             print(f"Database error: {e}")
-            return None
+            return 0
         finally:
             conn.close()
     else:
         print("Error: Cannot create database connection.")
-        return None
+        return 0
 
 def get_all_services():
     """Get all services from the database"""
@@ -302,7 +303,7 @@ def get_service_by_id(service_id):
         print("Error: Cannot create database connection.")
         return None
 
-def update_service(service_id, name, price, duration_minutes, description):
+def update_service(service_id, name, price, duration_minutes, description, category="General"):
     """Update a service's information"""
     conn = create_connection()
     if conn is not None:
@@ -310,10 +311,10 @@ def update_service(service_id, name, price, duration_minutes, description):
             cursor = conn.cursor()
             sql = '''
                 UPDATE services
-                SET name = ?, price = ?, duration_minutes = ?, description = ?
+                SET name = ?, price = ?, duration_minutes = ?, description = ?, category = ?
                 WHERE id = ?
             '''
-            cursor.execute(sql, (name, float(price), int(duration_minutes), description, service_id))
+            cursor.execute(sql, (name, float(price), int(duration_minutes), description, category, service_id))
             conn.commit()
             return cursor.rowcount
         except sqlite3.Error as e:
@@ -366,6 +367,99 @@ def search_services(search_term):
     else:
         print("Error: Cannot create database connection.")
         return []
+
+def get_services_by_category(category=None):
+    """Get all services filtered by category"""
+    conn = create_connection()
+    if conn is not None:
+        try:
+            cursor = conn.cursor()
+            if category:
+                cursor.execute("SELECT * FROM services WHERE category = ? ORDER BY name", (category,))
+            else:
+                cursor.execute("SELECT * FROM services ORDER BY category, name")
+            rows = cursor.fetchall()
+            return rows
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            return []
+        finally:
+            conn.close()
+    else:
+        print("Error: Cannot create database connection.")
+        return []
+
+def get_service_categories():
+    """Get all unique service categories"""
+    conn = create_connection()
+    if conn is not None:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT category FROM services ORDER BY category")
+            rows = cursor.fetchall()
+            return [row[0] for row in rows]  # Extract category names from tuples
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            return []
+        finally:
+            conn.close()
+    else:
+        print("Error: Cannot create database connection.")
+        return []
+
+def get_service_statistics():
+    """Get statistics about services"""
+    conn = create_connection()
+    if conn is not None:
+        try:
+            cursor = conn.cursor()
+            stats = {}
+            
+            # Total number of services
+            cursor.execute("SELECT COUNT(*) FROM services")
+            stats['total_services'] = cursor.fetchone()[0]
+            
+            # Services by category
+            cursor.execute("""
+                SELECT category, COUNT(*) as count 
+                FROM services 
+                GROUP BY category 
+                ORDER BY count DESC
+            """)
+            stats['services_by_category'] = cursor.fetchall()
+            
+            # Average price of services
+            cursor.execute("SELECT AVG(price) FROM services")
+            stats['avg_price'] = cursor.fetchone()[0]
+            
+            # Most expensive service
+            cursor.execute("""
+                SELECT name, price, category 
+                FROM services 
+                ORDER BY price DESC 
+                LIMIT 1
+            """)
+            stats['most_expensive'] = cursor.fetchone()
+            
+            # Most common service duration
+            cursor.execute("""
+                SELECT duration_minutes, COUNT(*) as count 
+                FROM services 
+                GROUP BY duration_minutes 
+                ORDER BY count DESC 
+                LIMIT 1
+            """)
+            stats['most_common_duration'] = cursor.fetchone()
+            
+            return stats
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            return {}
+        finally:
+            conn.close()
+    else:
+        print("Error: Cannot create database connection.")
+        return {}
 
 # Appointment CRUD operations
 def add_appointment(client_id, service_id, appointment_date, deposit_amount, notes=""):
@@ -605,25 +699,21 @@ def get_appointments_by_client(client_id):
             return []
         finally:
             conn.close()
-    else:
-        print("Error: Cannot create database connection.")
-        return []
-
-# Initialize database and tables
 def get_pending_appointments_with_clients():
-    """Get all scheduled appointments with client information"""
+    """Get all pending appointments with client information"""
     conn = create_connection()
     if conn is not None:
         try:
             cursor = conn.cursor()
-            cursor.execute("""
-                SELECT a.id, c.id, c.first_name, c.last_name, s.id, s.name, s.price, a.appointment_date, a.deposit_amount, a.notes, a.status 
+            sql = '''
+                SELECT a.id, c.first_name, c.last_name, s.name, a.appointment_date, a.deposit_amount, a.notes, a.status
                 FROM appointments a
                 JOIN clients c ON a.client_id = c.id
                 JOIN services s ON a.service_id = s.id
                 WHERE a.status = 'scheduled'
-                ORDER BY a.appointment_date ASC
-            """)
+                ORDER BY a.appointment_date
+            '''
+            cursor.execute(sql)
             rows = cursor.fetchall()
             return rows
         except sqlite3.Error as e:
@@ -634,6 +724,96 @@ def get_pending_appointments_with_clients():
     else:
         print("Error: Cannot create database connection.")
         return []
+
+def get_appointment_statistics():
+    """Get statistics about appointments"""
+    conn = create_connection()
+    if conn is not None:
+        try:
+            cursor = conn.cursor()
+            stats = {}
+            
+            # Total number of appointments
+            cursor.execute("SELECT COUNT(*) FROM appointments")
+            stats['total_appointments'] = cursor.fetchone()[0]
+            
+            # Appointments by status
+            cursor.execute("""
+                SELECT status, COUNT(*) as count 
+                FROM appointments 
+                GROUP BY status 
+                ORDER BY count DESC
+            """)
+            stats['appointments_by_status'] = cursor.fetchall()
+            
+            # Appointments in the last 30 days
+            cursor.execute("""
+                SELECT COUNT(*) FROM appointments 
+                WHERE date(appointment_date) >= date('now', '-30 days')
+            """)
+            stats['appointments_last_30_days'] = cursor.fetchone()[0]
+            
+            # Appointments in the next 7 days
+            cursor.execute("""
+                SELECT COUNT(*) FROM appointments 
+                WHERE date(appointment_date) BETWEEN date('now') AND date('now', '+7 days')
+                AND status = 'scheduled'
+            """)
+            stats['upcoming_appointments_7_days'] = cursor.fetchone()[0]
+            
+            # Most popular service (by number of appointments)
+            cursor.execute("""
+                SELECT s.name, COUNT(*) as count 
+                FROM appointments a
+                JOIN services s ON a.service_id = s.id
+                GROUP BY a.service_id
+                ORDER BY count DESC
+                LIMIT 1
+            """)
+            most_popular = cursor.fetchone()
+            stats['most_popular_service'] = most_popular if most_popular else None
+            
+            # Most active client (by number of appointments)
+            cursor.execute("""
+                SELECT c.first_name || ' ' || c.last_name as client_name, COUNT(*) as count 
+                FROM appointments a
+                JOIN clients c ON a.client_id = c.id
+                GROUP BY a.client_id
+                ORDER BY count DESC
+                LIMIT 1
+            """)
+            most_active = cursor.fetchone()
+            stats['most_active_client'] = most_active if most_active else None
+            
+            # Total revenue (sum of deposit amounts)
+            cursor.execute("SELECT SUM(deposit_amount) FROM appointments")
+            stats['total_revenue'] = cursor.fetchone()[0] or 0
+            
+            # Average deposit amount
+            cursor.execute("SELECT AVG(deposit_amount) FROM appointments")
+            stats['avg_deposit'] = cursor.fetchone()[0] or 0
+            
+            # Appointments by day of week
+            cursor.execute("""
+                SELECT strftime('%w', appointment_date) as day_of_week, COUNT(*) as count
+                FROM appointments
+                GROUP BY day_of_week
+                ORDER BY day_of_week
+            """)
+            days_mapping = {"0": "Domingo", "1": "Lunes", "2": "Martes", "3": "Miércoles", 
+                          "4": "Jueves", "5": "Viernes", "6": "Sábado"}
+            appointments_by_day = cursor.fetchall()
+            stats['appointments_by_day'] = [(days_mapping[day], count) for day, count in appointments_by_day]
+            
+            return stats
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            return {}
+        finally:
+            conn.close()
+    else:
+        print("Error: Cannot create database connection.")
+        return {}
 
 def mark_appointment_as_completed(appointment_id):
     """Mark an appointment as completed"""

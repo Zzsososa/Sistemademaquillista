@@ -4,9 +4,9 @@ import pandas as pd
 import datetime
 from database import (init_db, create_connection, add_client, get_all_clients, get_client_by_id, update_client, delete_client, search_clients,
                    check_client_exists, add_service, get_all_services, get_service_by_id, update_service, delete_service, search_services,
-                   add_appointment, get_all_appointments, update_appointment, delete_appointment, 
+                   get_services_by_category, get_service_categories, get_service_statistics, add_appointment, get_all_appointments, update_appointment, delete_appointment, 
                    get_appointments_by_date, get_appointment_by_id, get_appointments_by_client, get_pending_appointments_with_clients,
-                   mark_appointment_as_completed, save_invoice)
+                   get_appointment_statistics, mark_appointment_as_completed, save_invoice)
 
 # Initialize the database
 init_db()
@@ -183,7 +183,7 @@ with st.sidebar:
         st.markdown("<h3 class='subheader'>Gestión de Servicios</h3>", unsafe_allow_html=True)
         
         # Create tabs for different service operations
-        service_tab = st.radio("Seleccione una opción:", ["Registrar Servicio", "Buscar y Editar Servicios"])
+        service_tab = st.radio("Seleccione una opción:", ["Registrar Servicio", "Buscar y Editar Servicios", "Estadísticas de Servicios"])
         
         if service_tab == "Registrar Servicio":
             st.markdown("<h4>Registrar Nuevo Servicio</h4>", unsafe_allow_html=True)
@@ -198,6 +198,20 @@ with st.sidebar:
                 with col2:
                     service_duration = st.number_input("Duración (minutos)*", min_value=5, step=5)
                 
+                # Opciones predefinidas de categorías + opción para crear nueva
+                default_categories = ["General", "Maquillaje", "Peinado", "Uñas", "Tratamientos", "Otro"]
+                service_category = st.selectbox(
+                    "Categoría*",
+                    options=default_categories,
+                    index=0
+                )
+                
+                # Si selecciona "Otro", mostrar campo para ingresar nueva categoría
+                if service_category == "Otro":
+                    new_category = st.text_input("Especifique la nueva categoría")
+                    if new_category:
+                        service_category = new_category
+                
                 service_description = st.text_area("Descripción (Opcional)")
                 
                 submit_service_button = st.form_submit_button(label="Registrar Servicio")
@@ -207,7 +221,7 @@ with st.sidebar:
                         st.markdown("<div class='error-message'>Por favor complete todos los campos obligatorios.</div>", unsafe_allow_html=True)
                     else:
                         # Add service to database
-                        service_id = add_service(service_name, service_price, service_duration, service_description)
+                        service_id = add_service(service_name, service_price, service_duration, service_description, service_category)
                         if service_id:
                             st.markdown("<div class='success-message'>¡Servicio registrado exitosamente!</div>", unsafe_allow_html=True)
                             # Clear form fields after successful submission
@@ -217,24 +231,40 @@ with st.sidebar:
         
         elif service_tab == "Buscar y Editar Servicios":
             st.markdown("<h4>Buscar Servicios</h4>", unsafe_allow_html=True)
-            service_search_term = st.text_input("Buscar por nombre")
             
-            if service_search_term:
-                services = search_services(service_search_term)
+            # Opciones de filtrado
+            col1, col2 = st.columns([1, 2])
+            
+            with col1:
+                # Obtener todas las categorías existentes
+                categories = ["Todas"] + get_service_categories()
+                filter_category = st.selectbox("Filtrar por categoría", options=categories, index=0)
+            
+            with col2:
+                search_term = st.text_input("Buscar por nombre")
+            
+            # Aplicar filtros
+            if search_term:
+                services = search_services(search_term)
+            elif filter_category != "Todas":
+                services = get_services_by_category(filter_category)
             else:
                 services = get_all_services()
             
             if services:
                 # Convert to DataFrame for better display
-                service_df = pd.DataFrame(services, columns=["ID", "Nombre", "Descripción", "Precio", "Duración (min)"])
+                df = pd.DataFrame(services, columns=["ID", "Nombre", "Precio", "Duración (min)", "Descripción", "Categoría"])
+                
+                # Format price column
+                df["Precio"] = df["Precio"].apply(lambda x: f"${x:.2f}")
                 
                 # Display services in a table
-                st.dataframe(service_df[["ID", "Nombre", "Precio", "Duración (min)"]], use_container_width=True)
+                st.dataframe(df[["ID", "Nombre", "Precio", "Duración (min)", "Categoría"]], use_container_width=True)
                 
                 # Select service to edit
                 selected_service_id = st.selectbox("Seleccionar servicio para editar/eliminar:", 
-                                                options=[service[0] for service in services],
-                                                format_func=lambda x: f"{dict(zip(service_df['ID'], service_df['Nombre']))[x]}")
+                                                 options=[service[0] for service in services],
+                                                 format_func=lambda x: f"{dict(zip(df['ID'], df['Nombre']))[x]}")
                 
                 if selected_service_id:
                     service = get_service_by_id(selected_service_id)
@@ -246,11 +276,32 @@ with st.sidebar:
                             
                             col1, col2 = st.columns(2)
                             with col1:
-                                edit_service_price = st.number_input("Precio*", min_value=0.0, value=float(service[3]), step=0.01, format="%.2f")
+                                edit_service_price = st.number_input("Precio*", min_value=0.0, step=0.01, format="%.2f", value=float(service[2]))
                             with col2:
-                                edit_service_duration = st.number_input("Duración (minutos)*", min_value=5, value=int(service[4]), step=5)
+                                edit_service_duration = st.number_input("Duración (minutos)*", min_value=5, step=5, value=int(service[3]))
                             
-                            edit_service_description = st.text_area("Descripción (Opcional)", value=service[2] if service[2] else "")
+                            # Obtener la categoría actual del servicio (índice 5 si existe, sino usar "General")
+                            current_category = service[5] if len(service) > 5 else "General"
+                            
+                            # Opciones predefinidas de categorías + opción para crear nueva
+                            default_categories = ["General", "Maquillaje", "Peinado", "Uñas", "Tratamientos", "Otro"]
+                            # Asegurar que la categoría actual esté en la lista
+                            if current_category not in default_categories:
+                                default_categories.append(current_category)
+                                
+                            edit_service_category = st.selectbox(
+                                "Categoría*",
+                                options=default_categories,
+                                index=default_categories.index(current_category)
+                            )
+                            
+                            # Si selecciona "Otro", mostrar campo para ingresar nueva categoría
+                            if edit_service_category == "Otro":
+                                new_category = st.text_input("Especifique la nueva categoría")
+                                if new_category:
+                                    edit_service_category = new_category
+                            
+                            edit_service_description = st.text_area("Descripción (Opcional)", value=service[4] if service[4] else "")
                             
                             col1, col2 = st.columns(2)
                             with col1:
@@ -263,9 +314,9 @@ with st.sidebar:
                                     st.markdown("<div class='error-message'>Por favor complete todos los campos obligatorios.</div>", unsafe_allow_html=True)
                                 else:
                                     # Update service in database
-                                    rows_affected = update_service(selected_service_id, edit_service_name, edit_service_price, edit_service_duration, edit_service_description)
+                                    rows_affected = update_service(selected_service_id, edit_service_name, edit_service_price, edit_service_duration, edit_service_description, edit_service_category)
                                     if rows_affected > 0:
-                                        st.markdown("<div class='success-message'>¡Servicio actualizado exitosamente!</div>", unsafe_allow_html=True)
+                                        st.markdown("<div class='success-message'>¡El servicio se actualizó correctamente!</div>", unsafe_allow_html=True)
                                         st.rerun()
                                     else:
                                         st.markdown("<div class='error-message'>Error al actualizar el servicio. Intente nuevamente.</div>", unsafe_allow_html=True)
@@ -274,18 +325,87 @@ with st.sidebar:
                                 # Delete service from database
                                 rows_affected = delete_service(selected_service_id)
                                 if rows_affected > 0:
-                                    st.markdown("<div class='success-message'>¡Servicio eliminado exitosamente!</div>", unsafe_allow_html=True)
+                                    st.markdown("<div class='success-message'>¡El servicio se ha eliminado correctamente!</div>", unsafe_allow_html=True)
                                     st.rerun()
                                 else:
                                     st.markdown("<div class='error-message'>Error al eliminar el servicio. Intente nuevamente.</div>", unsafe_allow_html=True)
             else:
                 st.info("No se encontraron servicios.")
+                
+        elif service_tab == "Estadísticas de Servicios":
+            st.markdown("<h4>Estadísticas de Servicios</h4>", unsafe_allow_html=True)
+            
+            # Obtener estadísticas de servicios
+            stats = get_service_statistics()
+            
+            if stats and stats.get('total_services', 0) > 0:
+                # Crear layout con columnas para métricas
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("Total de Servicios", stats['total_services'])
+                
+                with col2:
+                    avg_price = stats.get('avg_price', 0)
+                    st.metric("Precio Promedio", f"${avg_price:.2f}")
+                
+                with col3:
+                    most_common_duration = stats.get('most_common_duration')
+                    if most_common_duration:
+                        st.metric("Duración más común", f"{most_common_duration[0]} min")
+                
+                # Información sobre servicio más caro
+                st.subheader("Servicio más costoso")
+                most_expensive = stats.get('most_expensive')
+                if most_expensive:
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.info(f"**{most_expensive[0]}**\n\nPrecio: ${most_expensive[1]:.2f}\n\nCategoría: {most_expensive[2]}")
+                
+                # Gráfico de servicios por categoría
+                st.subheader("Servicios por Categoría")
+                services_by_category = stats.get('services_by_category', [])
+                
+                if services_by_category:
+                    # Preparar datos para el gráfico
+                    categories = [cat[0] for cat in services_by_category]
+                    counts = [cat[1] for cat in services_by_category]
+                    
+                    # Crear gráfico de barras
+                    import matplotlib.pyplot as plt
+                    
+                    fig, ax = plt.subplots(figsize=(10, 6))
+                    bars = ax.bar(categories, counts, color='#FF69B4')
+                    
+                    # Añadir etiquetas y título
+                    ax.set_xlabel('Categoría')
+                    ax.set_ylabel('Cantidad de Servicios')
+                    ax.set_title('Distribución de Servicios por Categoría')
+                    
+                    # Añadir valores en las barras
+                    for bar in bars:
+                        height = bar.get_height()
+                        ax.text(bar.get_x() + bar.get_width()/2., height + 0.1,
+                                f'{height:.0f}', ha='center', va='bottom')
+                    
+                    # Ajustar diseño
+                    plt.xticks(rotation=45, ha='right')
+                    plt.tight_layout()
+                    
+                    # Mostrar gráfico en Streamlit
+                    st.pyplot(fig)
+                    
+                    # Mostrar tabla con datos
+                    df_categories = pd.DataFrame(services_by_category, columns=['Categoría', 'Cantidad'])
+                    st.dataframe(df_categories, use_container_width=True)
+            else:
+                st.info("No hay suficientes datos para mostrar estadísticas de servicios.")
     
     elif section == "Citas":
         st.markdown("<h3 class='subheader'>Gestión de Citas</h3>", unsafe_allow_html=True)
         
         # Create tabs for different appointment operations
-        appointment_tab = st.radio("Seleccione una opción:", ["Agendar Cita", "Buscar y Editar Citas", "Calendario de Citas"])
+        appointment_tab = st.radio("Seleccione una opción:", ["Agendar Cita", "Buscar y Editar Citas", "Calendario de Citas", "Estadísticas de Citas"])
         
         if appointment_tab == "Agendar Cita":
             st.markdown("<h4>Agendar Nueva Cita</h4>", unsafe_allow_html=True)
@@ -485,18 +605,12 @@ with st.sidebar:
                     with col2:
                         if appointments_by_hour[hour]:
                             for appointment in appointments_by_hour[hour]:
-                                appointment_time = datetime.datetime.strptime(appointment[4], "%Y-%m-%d %H:%M")
-                                client_name = f"{appointment[1]} {appointment[2]}"
-                                service_name = appointment[3]
-                                deposit = appointment[5]  # Deposit amount
-                                status = appointment[7]  # Appointment status
-                                
-                                # Create a colored box based on status
-                                if status == "scheduled":
-                                    box_color = "#FFC107"  # Amarillo para citas programadas
-                                elif status == "completed":
-                                    box_color = "#4CAF50"  # Verde para citas completadas
-                                else:  # cancelled
+                                with col2:
+                                    # Display appointment details
+                                    st.markdown(f"**{appointment[1]} {appointment[2]}** - {appointment[3]}")
+                                    st.markdown(f"Hora: {datetime.datetime.strptime(appointment[4], '%Y-%m-%d %H:%M').strftime('%H:%M')} | Duración: {appointment[8]} min")
+                                    st.markdown(f"Apartado: ${float(appointment[5]):.2f} | Estado: {appointment[7]}")
+                                    st.markdown("---")
                                     box_color = "#F44336"  # Rojo para citas canceladas
                                 
                                 st.markdown(f"""
@@ -512,6 +626,109 @@ with st.sidebar:
                     st.markdown("<hr style='margin: 5px 0;'>", unsafe_allow_html=True)
             else:
                 st.info(f"No hay citas programadas para el {selected_date.strftime('%d/%m/%Y')}.")
+                
+        elif appointment_tab == "Estadísticas de Citas":
+            st.markdown("<h4>Estadísticas de Citas</h4>", unsafe_allow_html=True)
+            
+            # Obtener estadísticas de citas
+            stats = get_appointment_statistics()
+            
+            if stats and stats.get('total_appointments', 0) > 0:
+                # Crear layout con columnas para métricas principales
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("Total de Citas", stats['total_appointments'])
+                
+                with col2:
+                    upcoming = stats.get('upcoming_appointments_7_days', 0)
+                    st.metric("Citas próximos 7 días", upcoming)
+                
+                with col3:
+                    last_month = stats.get('appointments_last_30_days', 0)
+                    st.metric("Citas últimos 30 días", last_month)
+                
+                # Segunda fila de métricas
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    total_revenue = stats.get('total_revenue', 0)
+                    st.metric("Ingresos Totales", f"${total_revenue:.2f}")
+                
+                with col2:
+                    avg_deposit = stats.get('avg_deposit', 0)
+                    st.metric("Apartado Promedio", f"${avg_deposit:.2f}")
+                
+                # Información sobre servicio más popular
+                st.subheader("Servicio Más Popular")
+                most_popular = stats.get('most_popular_service')
+                if most_popular:
+                    st.info(f"**{most_popular[0]}**\n\nNúmero de citas: {most_popular[1]}")
+                
+                # Información sobre cliente más activo
+                st.subheader("Cliente Más Frecuente")
+                most_active = stats.get('most_active_client')
+                if most_active:
+                    st.info(f"**{most_active[0]}**\n\nNúmero de citas: {most_active[1]}")
+                
+                # Gráficos
+                st.subheader("Distribución de Citas")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Gráfico de citas por estado
+                    appointments_by_status = stats.get('appointments_by_status', [])
+                    if appointments_by_status:
+                        # Traducir estados a español
+                        status_mapping = {"scheduled": "Programada", "completed": "Completada", "cancelled": "Cancelada"}
+                        labels = [status_mapping.get(status[0], status[0]) for status in appointments_by_status]
+                        sizes = [status[1] for status in appointments_by_status]
+                        
+                        # Crear gráfico circular
+                        import matplotlib.pyplot as plt
+                        
+                        fig1, ax1 = plt.subplots(figsize=(8, 6))
+                        ax1.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90, colors=['#FF69B4', '#90EE90', '#FFA07A'])
+                        ax1.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle
+                        plt.title('Citas por Estado')
+                        
+                        st.pyplot(fig1)
+                
+                with col2:
+                    # Gráfico de citas por día de la semana
+                    appointments_by_day = stats.get('appointments_by_day', [])
+                    if appointments_by_day:
+                        days = [day[0] for day in appointments_by_day]
+                        counts = [day[1] for day in appointments_by_day]
+                        
+                        # Crear gráfico de barras
+                        fig2, ax2 = plt.subplots(figsize=(8, 6))
+                        bars = ax2.bar(days, counts, color='#FF69B4')
+                        
+                        # Añadir etiquetas y título
+                        ax2.set_xlabel('Día de la Semana')
+                        ax2.set_ylabel('Número de Citas')
+                        ax2.set_title('Citas por Día de la Semana')
+                        
+                        # Añadir valores en las barras
+                        for bar in bars:
+                            height = bar.get_height()
+                            ax2.text(bar.get_x() + bar.get_width()/2., height + 0.1,
+                                    f'{height:.0f}', ha='center', va='bottom')
+                        
+                        plt.tight_layout()
+                        st.pyplot(fig2)
+                
+                # Tabla de datos
+                st.subheader("Resumen por Estado")
+                if appointments_by_status:
+                    # Crear DataFrame para mostrar datos
+                    status_data = [(status_mapping.get(s[0], s[0]), s[1]) for s in appointments_by_status]
+                    df_status = pd.DataFrame(status_data, columns=['Estado', 'Cantidad'])
+                    st.dataframe(df_status, use_container_width=True)
+            else:
+                st.info("No hay suficientes datos para mostrar estadísticas de citas.")
     
     elif section == "Facturación":
         st.markdown("<h3 class='subheader'>Facturación</h3>", unsafe_allow_html=True)
