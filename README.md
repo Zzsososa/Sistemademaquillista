@@ -51,6 +51,14 @@ streamlit run app.py
 - Editar información de clientes existentes
 - Eliminar clientes del sistema
 
+### Gestión de Servicios
+- Registro de servicios con nombre, descripción, precio y duración
+- Categorización de servicios por tipo (maquillaje, peinado, uñas, etc.)
+- Actualización de precios y disponibilidad
+- Estadísticas de servicios más populares
+- Visualización de gráficos de servicios por categoría
+- Gestión de promociones y descuentos
+
 ### Gestión de Citas
 - Programación de citas con selección de cliente y servicio
 - Calendario visual para ver disponibilidad
