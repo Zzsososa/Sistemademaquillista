@@ -6,7 +6,7 @@ from database import (init_db, create_connection, add_client, get_all_clients, g
                    check_client_exists, add_service, get_all_services, get_service_by_id, update_service, delete_service, search_services,
                    get_services_by_category, get_service_categories, get_service_statistics, add_appointment, get_all_appointments, update_appointment, delete_appointment, 
                    get_appointments_by_date, get_appointment_by_id, get_appointments_by_client, get_pending_appointments_with_clients,
-                   mark_appointment_as_completed, save_invoice, get_client_statistics)
+                   get_appointment_statistics, mark_appointment_as_completed, save_invoice)
 
 # Initialize the database
 init_db()
@@ -405,7 +405,7 @@ with st.sidebar:
         st.markdown("<h3 class='subheader'>Gestión de Citas</h3>", unsafe_allow_html=True)
         
         # Create tabs for different appointment operations
-        appointment_tab = st.radio("Seleccione una opción:", ["Agendar Cita", "Buscar y Editar Citas", "Calendario de Citas"])
+        appointment_tab = st.radio("Seleccione una opción:", ["Agendar Cita", "Buscar y Editar Citas", "Calendario de Citas", "Estadísticas de Citas"])
         
         if appointment_tab == "Agendar Cita":
             st.markdown("<h4>Agendar Nueva Cita</h4>", unsafe_allow_html=True)
@@ -605,18 +605,12 @@ with st.sidebar:
                     with col2:
                         if appointments_by_hour[hour]:
                             for appointment in appointments_by_hour[hour]:
-                                appointment_time = datetime.datetime.strptime(appointment[4], "%Y-%m-%d %H:%M")
-                                client_name = f"{appointment[1]} {appointment[2]}"
-                                service_name = appointment[3]
-                                deposit = appointment[5]  # Deposit amount
-                                status = appointment[7]  # Appointment status
-                                
-                                # Create a colored box based on status
-                                if status == "scheduled":
-                                    box_color = "#FFC107"  # Amarillo para citas programadas
-                                elif status == "completed":
-                                    box_color = "#4CAF50"  # Verde para citas completadas
-                                else:  # cancelled
+                                with col2:
+                                    # Display appointment details
+                                    st.markdown(f"**{appointment[1]} {appointment[2]}** - {appointment[3]}")
+                                    st.markdown(f"Hora: {datetime.datetime.strptime(appointment[4], '%Y-%m-%d %H:%M').strftime('%H:%M')} | Duración: {appointment[8]} min")
+                                    st.markdown(f"Apartado: ${float(appointment[5]):.2f} | Estado: {appointment[7]}")
+                                    st.markdown("---")
                                     box_color = "#F44336"  # Rojo para citas canceladas
                                 
                                 st.markdown(f"""
@@ -632,6 +626,109 @@ with st.sidebar:
                     st.markdown("<hr style='margin: 5px 0;'>", unsafe_allow_html=True)
             else:
                 st.info(f"No hay citas programadas para el {selected_date.strftime('%d/%m/%Y')}.")
+                
+        elif appointment_tab == "Estadísticas de Citas":
+            st.markdown("<h4>Estadísticas de Citas</h4>", unsafe_allow_html=True)
+            
+            # Obtener estadísticas de citas
+            stats = get_appointment_statistics()
+            
+            if stats and stats.get('total_appointments', 0) > 0:
+                # Crear layout con columnas para métricas principales
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("Total de Citas", stats['total_appointments'])
+                
+                with col2:
+                    upcoming = stats.get('upcoming_appointments_7_days', 0)
+                    st.metric("Citas próximos 7 días", upcoming)
+                
+                with col3:
+                    last_month = stats.get('appointments_last_30_days', 0)
+                    st.metric("Citas últimos 30 días", last_month)
+                
+                # Segunda fila de métricas
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    total_revenue = stats.get('total_revenue', 0)
+                    st.metric("Ingresos Totales", f"${total_revenue:.2f}")
+                
+                with col2:
+                    avg_deposit = stats.get('avg_deposit', 0)
+                    st.metric("Apartado Promedio", f"${avg_deposit:.2f}")
+                
+                # Información sobre servicio más popular
+                st.subheader("Servicio Más Popular")
+                most_popular = stats.get('most_popular_service')
+                if most_popular:
+                    st.info(f"**{most_popular[0]}**\n\nNúmero de citas: {most_popular[1]}")
+                
+                # Información sobre cliente más activo
+                st.subheader("Cliente Más Frecuente")
+                most_active = stats.get('most_active_client')
+                if most_active:
+                    st.info(f"**{most_active[0]}**\n\nNúmero de citas: {most_active[1]}")
+                
+                # Gráficos
+                st.subheader("Distribución de Citas")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # Gráfico de citas por estado
+                    appointments_by_status = stats.get('appointments_by_status', [])
+                    if appointments_by_status:
+                        # Traducir estados a español
+                        status_mapping = {"scheduled": "Programada", "completed": "Completada", "cancelled": "Cancelada"}
+                        labels = [status_mapping.get(status[0], status[0]) for status in appointments_by_status]
+                        sizes = [status[1] for status in appointments_by_status]
+                        
+                        # Crear gráfico circular
+                        import matplotlib.pyplot as plt
+                        
+                        fig1, ax1 = plt.subplots(figsize=(8, 6))
+                        ax1.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90, colors=['#FF69B4', '#90EE90', '#FFA07A'])
+                        ax1.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle
+                        plt.title('Citas por Estado')
+                        
+                        st.pyplot(fig1)
+                
+                with col2:
+                    # Gráfico de citas por día de la semana
+                    appointments_by_day = stats.get('appointments_by_day', [])
+                    if appointments_by_day:
+                        days = [day[0] for day in appointments_by_day]
+                        counts = [day[1] for day in appointments_by_day]
+                        
+                        # Crear gráfico de barras
+                        fig2, ax2 = plt.subplots(figsize=(8, 6))
+                        bars = ax2.bar(days, counts, color='#FF69B4')
+                        
+                        # Añadir etiquetas y título
+                        ax2.set_xlabel('Día de la Semana')
+                        ax2.set_ylabel('Número de Citas')
+                        ax2.set_title('Citas por Día de la Semana')
+                        
+                        # Añadir valores en las barras
+                        for bar in bars:
+                            height = bar.get_height()
+                            ax2.text(bar.get_x() + bar.get_width()/2., height + 0.1,
+                                    f'{height:.0f}', ha='center', va='bottom')
+                        
+                        plt.tight_layout()
+                        st.pyplot(fig2)
+                
+                # Tabla de datos
+                st.subheader("Resumen por Estado")
+                if appointments_by_status:
+                    # Crear DataFrame para mostrar datos
+                    status_data = [(status_mapping.get(s[0], s[0]), s[1]) for s in appointments_by_status]
+                    df_status = pd.DataFrame(status_data, columns=['Estado', 'Cantidad'])
+                    st.dataframe(df_status, use_container_width=True)
+            else:
+                st.info("No hay suficientes datos para mostrar estadísticas de citas.")
     
     elif section == "Facturación":
         st.markdown("<h3 class='subheader'>Facturación</h3>", unsafe_allow_html=True)
